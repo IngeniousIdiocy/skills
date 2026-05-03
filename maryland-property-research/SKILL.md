@@ -125,29 +125,54 @@ candidate at <liber>/<folio>:
 
 #### Mandatory recovery decision tree (do not deliberate — execute these in order)
 
-If validation fails OR the clerk-era / date check (gotcha #2) fires, **do not stop to think about it**. The first time the validation loop printed the same "this read is unusual, let me validate" line on a real run, the agent repeated that same sentence ~17 times in a row before doing anything because the recovery action wasn't specified. Specify it.
+If validation fails OR the clerk-era / date check (gotcha #2) fires, **do not stop to think about it**. The decision tree IS the thinking. The first time the validation loop printed the same "this read is unusual, let me validate" line on a real run, the agent repeated that same sentence ~17 times in a row before doing anything because the recovery action wasn't specified. Specify it.
+
+**The user is the LAST-resort oracle, not an early shortcut.** Exhaust all twelve mechanical steps below before escalating. Asking the user prematurely wastes their time on a problem the recovery tree could have solved automatically.
 
 ```
 WHEN validation fails or clerk-era mismatch:
-  step 1: re-render the source page at 240 DPI (in case the cache is stale)
-  step 2: run enhance_image() to produce ALL variants in the EnhancedSet
-          (digits AND letters profiles, inverted, threshold)
-  step 3: re-extract the citation, this time reading EACH digit-tuned variant
-          (enhanced_zoom_2x, inverted, threshold) once and recording all reads
-  step 4: if the three reads disagree → use majority vote
-          if two agree, that is your candidate
-  step 5: pull the candidate (book, folio) and re-validate parties+date
-  step 6: if still failing, scan ±5 folios in the same volume
-          (try folios sp-2..sp+5 in that order — recorded-sequentially is
-          biased forward not backward)
-  step 7: if still failing, scan ±1 in book number
-  step 8: if still failing after step 7, surface to user with all candidate
-          readings and the path to enhanced_zoom_2x for each
+  step 1:  re-render the source page at 240 DPI (in case the cache is stale)
+  step 2:  run enhance_image() to produce ALL variants in the EnhancedSet
+           (digits AND letters profiles, inverted, threshold)
+  step 3:  re-extract the citation reading EACH digits variant once
+           (enhanced_zoom_2x, inverted, threshold) — record all reads
+  step 4:  majority vote across the three reads; if two agree, that's the
+           candidate. Pull and re-validate parties+date.
+  step 5:  if still failing, re-render the page at 400 DPI, then 600 DPI,
+           re-running enhance_image() each time
+  step 6:  crop just the citation/name region and re-render the crop at
+           600 DPI (small region → more pixels per glyph). Re-extract.
+  step 7:  if still failing, scan ±5 folios in the same volume
+           (try folios sp-2..sp+5 — recorded-sequentially is biased forward
+           not backward)
+  step 8:  if still failing, scan ±1 in book number
+           (cursive 2↔5↔8 and 7↔1 collisions)
+  step 9:  if still failing AND the source citation is typeset (not cursive),
+           apply gotcha #12: try the modern grantor's name in the digital
+           name index for cited-year ±2
+  step 10: try the address-number search on landrec (works for recent deeds
+           and for any era where the address is normalized in the index)
+  step 11: try the digital grantor/grantee name search for the most likely
+           candidate name (works for ~1989+ in BC, varying in BA per
+           gotcha #11)
+  step 12: try the scanned clerk index volumes (CE 35 series for BA,
+           equivalent for BC) — see reference/scanned_index_volumes.md for
+           bucket structure and navigation tactics
+  step 13: ONLY now surface to the user. Provide:
+            - all candidate readings from steps 3–6
+            - absolute path to enhanced_letters_zoom_2x (for names)
+              AND enhanced_zoom_2x (for digits)
+            - optionally browser_navigate the Playwright tab to the source
+              page so the user has the in-viewer zoom controls
+           Ask SPECIFICALLY: not "is this right?" but "I see surname
+           starting `Wh-` and ending `-te`; can you read it?" — one ask
+           per field. If the user can't read it either, mark `[?]` in the
+           transcription and proceed.
   STOP. Do not "think about whether this is unusual" — the decision tree
   IS the thinking. Execute it.
 ```
 
-The intent is to make the recovery path **mechanical**, not deliberative. Every step has a concrete action. The agent must not loop on "this is unusual, let me validate" without taking the next mechanical step. If a step fails to produce a candidate, the next step starts immediately.
+The intent is to make the recovery path **mechanical**, not deliberative. Every step has a concrete action. The agent must not loop on "this is unusual, let me validate" without taking the next mechanical step. If a step fails to produce a candidate, the next step starts immediately. **Every step before 13 is fully automated** — the user only sees a question after twelve mechanical attempts have failed.
 
 ### 4. Same-day "even date" companion deeds = straw pattern, not a real chain
 
@@ -234,6 +259,77 @@ If the chain shows a widow/widower with a new last name (a person whose maiden o
 ### 10. SDAT's "Primary Structure Built" date is often a default and unreliable
 
 SDAT often shows `1900` as a placeholder build year for old houses (and similarly round-number defaults appear elsewhere — `1920`, `1950`). Cross-check against the earliest possible date in the recorded chain (the property can't have been built before the developer first conveyed the lot, and usually wasn't built before the lot was first improved per insurance maps). For a researched build date, recommend the user check the **Maryland Inventory of Historic Properties (MIHP)** — historic-district properties usually have individual MIHP forms with researched build dates and architect attribution where known.
+
+### 11. landrec's grantor/grantee name index has a hard coverage cliff
+
+The digital name search at landrec is **not comprehensive across all eras**. Empirical coverage (mid-2026):
+
+- Baltimore City (`cid=BC`): name index returns results only for ~1989+ deeds. Pre-1989 grantor/grantee searches return `NoResults` even when the deed exists.
+- Baltimore County (`cid=BA`): similar cliff at varying dates per surname-letter shard.
+
+When a name search returns `NoResults` for a year before this cliff, **don't conclude the deed doesn't exist** — fall back to the **scanned clerk index volumes** (see `reference/scanned_index_volumes.md`). Those are the original handwritten clerk indexes, scanned and accessible via `JumpResults.aspx`. They cover back to the 19th century. The address-number search on landrec is also worth trying first — it's a separately-indexed path that sometimes returns results when the name path fails.
+
+### 12. Typed citations in modern deeds are also frequently wrong
+
+It's not just cursive. Attorneys in the 1990s+ routinely transcribed prior-deed citations incorrectly. Observed: a 2005 deed cited `SEB 4322/281`, then in a corrective-language recital cited `SEB 4822/281` — both wrong; the actual prior deed was at `SEB 4827/281`.
+
+When a citation walk-back fails on a **modern deed where the citation is typeset** (not cursive), do NOT assume image-enhancement will help. Instead, in this order:
+
+1. Try the modern deed's grantor name in the digital name index for the cited year ±2 years.
+2. Try the address-number search on landrec.
+3. Only then scan ±5 folios in the cited volume (the cursive recovery tree).
+
+The cursive image-enhancement recipe is irrelevant when the source is already typeset — the misread is the attorney's, not the OCR's.
+
+### 13. Ground-rent split — same-day reversion sale (distinct from the straw dance)
+
+A different same-day-companion-deed pattern from gotcha #4. Common in Maryland 1880s–1930s:
+
+1. Developer issues a 99-year **ground lease** to the occupant on day X, citation `<Liber>/<P1>`. The occupant pays annual ground rent (often $90–$300/year) but holds the leasehold, not the fee.
+2. Same day, developer sells the **reversion** (the right to receive ground rent and to take the fee at lease expiry) to a passive investor — citation `<Liber>/<P1+N>`, usually within ±20 folios in the same volume.
+3. Two paper owners thereafter: leaseholder + reversioner. They transfer independently down their own chains.
+4. Eventually a successor leaseholder buys the reversion from a successor reversioner; **fee and leasehold merge** in that party. From then on the lot is held in fee simple.
+
+Detection signals:
+- The originating "deed" begins `This Lease,` or `This Deed of Lease,`
+- It reserves `annual rent of <amount>`
+- A distinct deed in the same volume within ±20 folios on the same date conveys "the reversion" or names a different grantee for "the fee" of the same lot
+
+Pipeline impact: **Follow the leasehold chain, not the reversion**. The reversion converges back into the chain at the merger event. Note the reversion split as a chain row but don't pull every reversion successor — the originating-covenant analysis only depends on the lease, since covenants ride the leasehold.
+
+### 14. Plat references go to plats.msa.maryland.gov, not landrec
+
+Plat citations in deeds — `WPC Plat Book 4, folio 42`, `RPC Plat No. 3, plat 7` — refer to **subdivision plats**, which live on a separate Maryland State Archives portal:
+
+```
+https://plats.msa.maryland.gov/pages/index.aspx
+```
+
+Different viewer; the URL grammar parallels landrec's. See `reference/plats_url_patterns.md` for the URL schema. Plats aren't part of the deed chain proper, but they're the canonical source for original lot dimensions and developer numbering — useful for cross-checking SDAT's legal-description field against the originating deed.
+
+### 15. Covenant schemes can self-expire — read the whole numbered block before reporting
+
+Some early-20th-century Maryland developers (Hill Top Park 1913, others) wrote **self-extinguishing** covenant schemes. Hill Top Park's covenants expired by their own terms on January 1, 1931 — 18 years after the originating lease. Roland Park / Guilford / Homeland a few blocks south used **perpetual** schemes — but you can't assume the developer next door did the same.
+
+**Always read the entire numbered-covenant block** before reporting any covenants as live. Trigger phrases to scan for:
+
+- `shall terminate ... on the [date]`
+- `shall be of no force or effect after [date]`
+- `for a period of [N] years from [date]`
+- `until the [year]`
+- `this restriction shall expire`
+
+If found, **flag prominently in the chain summary's covenant analysis**:
+
+> Total recorded covenants binding this property today: **zero, expired YYYY-MM-DD per Covenant N**.
+
+Do not transcribe an expired scheme as if it were currently binding. Note the expiry date in the originating-deed chain row's substance column.
+
+### 16. Developer-principal taking a lot from his own development is legitimate
+
+Soft signal worth flagging, not a misread. Pattern: an officer who signed the originating developer-conveyance later appears as a **grantee** on the same lot. Example seen on 2210 Sulgrave: Theophilus White signed the 1913 Hill Top Park lease as VP of Hill Top Park Co.; he personally acquired Lot 8 in 1917 from Robert B. Green.
+
+When this pattern appears, do NOT dismiss it as a name-extraction error. Verify against the index that the same name appears in both roles, then note the unusual chain step in the substance column ("developer principal personally acquires lot from his own development").
 
 ## Name verification protocol (mandatory)
 
@@ -371,6 +467,19 @@ If the fetch returns HTTP 401/403, or the resulting "PDF" is actually HTML conta
                             │
                             ▼
    ┌────────────────────────────────────────────┐
+   │ 2a. TRY NORMALIZED SEARCHES FIRST          │
+   │    a. street-number search on landrec      │
+   │    b. modern-grantor name index search     │
+   │    ↳ either may return decades of recent   │
+   │      citations directly. Only fall through │
+   │      to the citation walk-back loop if     │
+   │      both come up empty. (The walk-back    │
+   │      loop is the slowest path and should   │
+   │      be the FALLBACK, not the default.)    │
+   └────────────────────────────────────────────┘
+                            │
+                            ▼
+   ┌────────────────────────────────────────────┐
    │ 3. for each deed back through chain:       │
    │   a. navigate viewer with sp/ep ≥ +5       │
    │   b. download iframe PDF via in-page       │
@@ -481,7 +590,9 @@ Rough order of magnitude (typical historic-platted property, ~8–12 deeds in th
 - Time per deed *without* the image-enhancement recipe: ~5–10 minutes including misreads + retries on each citation
 - Time per deed *with* the enhancement recipe applied first: ~2 minutes, usually zero retries
 - The image-enhancement step adds ~200ms per page rendered; that cost is dwarfed by the eliminated retry loop, so it's a strict win — apply it on every read, not selectively.
-- End-to-end runtime is dominated by login + landrec page load latency, not by the local image processing or the OCR. Expect 30–60 minutes wall-clock for a 10-deed chain on a fast connection.
+- End-to-end runtime is dominated by login + landrec page load latency, not by the local image processing or the OCR. Expect **30–60 minutes wall-clock for a 10-deed chain** on a fast connection with a responsive user — that's the target.
+- With **dedicated user collaboration** on cursive escalations (last-resort step 13 in the recovery tree), expect **1–2 hours**. With a slow-to-respond user (typical when they're multitasking), real wall-clock can stretch to 2–3 hours; the bottleneck there is human latency, not the skill.
+- The mechanical recovery tree (gotcha #3) keeps user-asks rare — under normal conditions, zero or one cursive escalations on a 10-deed chain. Steps 1–12 fix the vast majority of misreads automatically.
 
 ## Principal lesson
 
